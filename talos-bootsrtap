@@ -16,6 +16,8 @@ if [ ! -f controlplane.yaml ]; then
     default_cluster_name=talos
   fi
   cluster_name=$(dialog --keep-tite --title talos-bootstrap --inputbox "Enter cluster name:" 8 40 "$default_cluster_name" 3>&1 1>&2 2>&3) || exit 0
+else
+  cluster_name=$(awk '/cluster:$/ {while(getline) {if ($1 == "clusterName:") {print $2; exit}}}' controlplane.yaml)
 fi
 
 # Screen: Enter networks to scan
