@@ -27,6 +27,16 @@ sudo mv ./talos-bootstrap /usr/local/bin/talos-bootstrap
 - Create a directory for holding your cluster configuration.
 - Run `talos-bootstrap` command for every node in your cluster.
 
+# Customizations
+
+You can specify your customizations in one of the following files:
+
+- `patch.yaml` - common settings used for all nodes.
+- `patch-controlplane.yaml` - settings used for controlplane nodes only
+- `patch-worker.yaml` - settings used for worker nodes only
+
+Read the [Configuration Patches](https://www.talos.dev/latest/talos-guides/configuration/patching/) documentation for more details.
+
 # Copyright
 
 Andrei Kvapil <kvapss@gmail.com>  

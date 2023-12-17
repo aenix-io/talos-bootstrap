@@ -194,7 +194,18 @@ node="$address"
   if [ ! -f secrets.yaml ]; then
     talosctl gen secrets >/dev/null 2>&1
   fi
-  talosctl gen config "$cluster_name" --with-secrets=secrets.yaml "$k8s_endpoint" --config-patch="$machine_config" --force >/dev/null 2>&1
+  patches=""
+  if [ -f patch.yaml ]; then
+    patches="$patches --config-patch=@patch.yaml"
+  fi
+  if [ -f patch-controlplane.yaml ]; then
+    patches="$patches --config-patch-control-plane=@patch-controlplane.yaml"
+  fi
+  if [ -f patch-worker.yaml ]; then
+    patches="$patches --config-patch-worker=@patch-worker.yaml"
+  fi
+  talosctl gen config "$cluster_name" --with-secrets=secrets.yaml "$k8s_endpoint" $patches --config-patch="$machine_config" --force >/dev/null 2>&1
+
   printf "%s\nXXX\n%s\n%s\nXXX\n" "1" "Applying configuration..."
   talosctl --talosconfig=talosconfig apply -e "$bootstrap_ip" -n "$bootstrap_ip" -f controlplane.yaml -i >/dev/null 2>&1
 
