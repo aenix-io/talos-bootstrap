@@ -120,6 +120,8 @@ interface=$(echo "$interface_list" | dialog --keep-tite --title talos-bootstrap 
 default_addresses=$(talosctl -n "$node" get nodeaddress default -i -o jsonpath={.spec.addresses[*]} | awk '$1=$1' RS=, OFS=,)
 addresses=$(dialog --keep-tite --title talos-bootstrap --inputbox "Enter addresses:" 8 40 "$default_addresses" 3>&1 1>&2 2>&3) || exit 0
 addresses=$(echo "$addresses" | awk '{$1=$1}1' OFS=",")
+# select first address
+address=$(echo "$addresses" | awk -F/ '{print $1}')
 
 # Screen: Configure default gateway
 default_gateway=$(talosctl -n "$node" get routes -i -o jsonpath={.spec.gateway} | grep -v '^$' -m1)
@@ -140,7 +142,7 @@ if [ $role = controlplane ]; then
 fi
 
 # Screen: Configure Kubernetes endpoint
-default_k8s_endpoint=https://${vip_address:-${gateway}0}:6443
+default_k8s_endpoint=https://${vip_address:-$address}:6443
 if [ -f controlplane.yaml ]; then
   default_k8s_endpoint=$(awk '$1 == "endpoint:" && $2 ~ /^http/ {print $2; exit}' controlplane.yaml)
 fi
@@ -184,7 +186,7 @@ trap '' EXIT
 
 # Swap IP addresses
 bootstrap_ip=$node
-node=$(echo "$addresses" | awk -F/ '{print $1}')
+node="$address"
 
 # Screen: Installation process
 { 
