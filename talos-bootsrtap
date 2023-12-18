@@ -7,17 +7,24 @@
 # - https://google.github.io/styleguide/shell.xml
 #
 
-should_bootstrap=0
-if [ ! -f controlplane.yaml ]; then
+# Load cluster configuration
+if [ -f cluster.conf ]; then
+  for key in BOOTSTRAP_ETCD CLUSTER_NAME KUBERNETES_API_ENDPOINT VIP_ADDRESS; do
+    val=$(awk "/^$key=/ "'{sub(/^[^=]+="?/, ""); sub(/"$/, ""); print}' cluster.conf)
+    export "CONFIG_$key=$val"
+  done
+fi
+
+# Screen: Enter cluster name
+if [ -n "$CONFIG_CLUSTER_NAME" ]; then
+  cluster_name="$CONFIG_CLUSTER_NAME"
+else
   should_bootstrap=1
-  # Screen: Enter cluster name
   default_cluster_name=$(basename "$PWD")
   if [ -z "$default_cluster_name" ] || [ "$default_cluster_name" = "/" ]; then
     default_cluster_name=talos
   fi
   cluster_name=$(dialog --keep-tite --title talos-bootstrap --inputbox "Enter cluster name:" 8 40 "$default_cluster_name" 3>&1 1>&2 2>&3) || exit 0
-else
-  cluster_name=$(awk '/cluster:$/ {while(getline) {if ($1 == "clusterName:") {print $2; exit}}}' controlplane.yaml)
 fi
 
 # Screen: Enter networks to scan
@@ -134,20 +141,14 @@ default_dns_servers=$(talosctl -n "$node" get resolvers resolvers -i -o jsonpath
 dns_servers=$(dialog --keep-tite --title talos-bootstrap --inputbox "Enter DNS servers:" 8 80 "$default_dns_servers" 3>&1 1>&2 2>&3) || exit 0
 dns_servers=$(echo "$dns_servers" | awk '{$1=$1}1' OFS=",")
 
-if [ $role = controlplane ]; then
-  # Screen: Configure VIP
-  default_vip_addres=""
-  if [ -f controlplane.yaml ]; then
-    default_vip_addres=$(awk '/vip:$/ {while(getline) {if ($1 == "ip:") {print $2; exit}}}' controlplane.yaml)
-  fi
-  vip_address=$(dialog --keep-tite --title talos-bootstrap --inputbox "Enter virtual shared IP address, or leave blank to skip:" 8 40 "$default_vip_addres" 3>&1 1>&2 2>&3) || exit 0
+# Screen: Configure VIP
+vip_address="$CONFIG_VIP_ADDRESS"
+if [ "$role" = controlplane ]; then
+  vip_address=$(dialog --keep-tite --title talos-bootstrap --inputbox "Enter virtual shared IP address, or leave blank to skip:" 8 40 "$vip_address" 3>&1 1>&2 2>&3) || exit 0
 fi
 
 # Screen: Configure Kubernetes endpoint
-default_k8s_endpoint=https://${vip_address:-$address}:6443
-if [ -f controlplane.yaml ]; then
-  default_k8s_endpoint=$(awk '$1 == "endpoint:" && $2 ~ /^http/ {print $2; exit}' controlplane.yaml)
-fi
+default_k8s_endpoint=${CONFIG_KUBERNETES_API_ENDPOINT:-https://${vip_address:-$address}:6443}
 k8s_endpoint=$(dialog --keep-tite --title talos-bootstrap --inputbox "Enter Kubernetes endpoint:" 8 40 "$default_k8s_endpoint" 3>&1 1>&2 2>&3) || exit 0
 
 # Screen: Confirm configuration
@@ -162,7 +163,7 @@ machine:
     interfaces:
     - interface: $interface
 EOT
-  if [ -n "$vip_address" ]; then
+  if [ "$role" = controlplane ] && [ -n "$vip_address" ]; then
     cat <<EOT
       vip:
         ip: $vip_address
@@ -175,6 +176,22 @@ EOT
           gateway: $gateway
 EOT
 )
+
+# Generating configuration...
+if [ ! -f secrets.yaml ]; then
+  talosctl gen secrets
+fi
+patches=""
+if [ -f patch.yaml ]; then
+  patches="$patches --config-patch=@patch.yaml"
+fi
+if [ -f patch-controlplane.yaml ]; then
+  patches="$patches --config-patch-control-plane=@patch-controlplane.yaml"
+fi
+if [ -f patch-worker.yaml ]; then
+  patches="$patches --config-patch-worker=@patch-worker.yaml"
+fi
+talosctl gen config "$cluster_name" "$k8s_endpoint" --with-secrets=secrets.yaml $patches --config-patch="$machine_config" --force
 
 file=$(mktemp)
 trap "rm -f \"$file\"" EXIT
@@ -191,25 +208,9 @@ bootstrap_ip=$node
 node="$address"
 
 # Screen: Installation process
-{ 
-  printf "%s\nXXX\n%s\n%s\nXXX\n" "0" "Generating configuration..."
-  if [ ! -f secrets.yaml ]; then
-    talosctl gen secrets >/dev/null 2>&1
-  fi
-  patches=""
-  if [ -f patch.yaml ]; then
-    patches="$patches --config-patch=@patch.yaml"
-  fi
-  if [ -f patch-controlplane.yaml ]; then
-    patches="$patches --config-patch-control-plane=@patch-controlplane.yaml"
-  fi
-  if [ -f patch-worker.yaml ]; then
-    patches="$patches --config-patch-worker=@patch-worker.yaml"
-  fi
-  talosctl gen config "$cluster_name" --with-secrets=secrets.yaml "$k8s_endpoint" $patches --config-patch="$machine_config" --force >/dev/null 2>&1
-
+{
   printf "%s\nXXX\n%s\n%s\nXXX\n" "1" "Applying configuration..."
-  talosctl --talosconfig=talosconfig apply -e "$bootstrap_ip" -n "$bootstrap_ip" -f controlplane.yaml -i >/dev/null 2>&1
+  talosctl --talosconfig=talosconfig apply -e "$bootstrap_ip" -n "$bootstrap_ip" -f "$role.yaml" -i >/dev/null 2>&1
 
   printf "%s\nXXX\n%s\n%s\nXXX\n" "10" "Installing..."
 
@@ -251,15 +252,39 @@ node="$address"
       001) printf "%s\nXXX\n%s\n%s\nXXX\n" "80" "Rebooting... (node is pingable again at $node)" ;;
     esac
   done
-} | dialog --keep-tite --title talos-bootstrap --gauge "Please wait" 10 70 0 3>&1 1>&2 2>&3
+} | dialog --keep-tite --title talos-bootstrap --gauge "Please wait" 10 70 0 3>&1 1>&2 2>&3 || exit 1
 
-# Save kubeconfig
-if [ ! -f kubeconfig ]; then
-  KUBECONFIG=kubeconfig talosctl --talosconfig=talosconfig -e "$node" -n "$node" kubeconfig -f
+# Screen: Should we bootstrap etcd?
+if [ "$CONFIG_BOOTSTRAP_ETCD" = true ]; then
+  should_bootstrap=1
+elif [ "$CONFIG_BOOTSTRAP_ETCD" = false ]; then
+  should_bootstrap=0
+else
+  dialog --stdout --keep-tite --title talos-bootstrap \
+    --yesno "It seems this is a first node in a cluster. Should we bootstrap etcd on it?" 7 60 3>&1 1>&2 2>&3
+  response=$?
+  case $response in
+     0) should_bootstrap=1 ;;
+     1) should_bootstrap=0 ;;
+     *) exit 0 ;;
+  esac
 fi
 
 if [ "$should_bootstrap" = 1 ]; then
   talosctl --talosconfig=talosconfig -e "$node" -n "$node" bootstrap
+fi
+
+# Saving cluster configuration
+cat > cluster.conf <<EOT
+BOOTSTRAP_ETCD=false
+CLUSTER_NAME="$cluster_name"
+KUBERNETES_API_ENDPOINT="$k8s_endpoint"
+VIP_ADDRESS="$vip_address"
+EOT
+
+# Save kubeconfig
+if [ ! -f kubeconfig ]; then
+  KUBECONFIG=kubeconfig talosctl --talosconfig=talosconfig -e "$node" -n "$node" kubeconfig -f
 fi
 
 # Screen: Complete installation
