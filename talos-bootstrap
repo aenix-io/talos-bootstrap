@@ -179,7 +179,7 @@ EOT
 
 # Generating configuration...
 if [ ! -f secrets.yaml ]; then
-  talosctl gen secrets
+  talosctl gen secrets || exit $?
 fi
 patches=""
 if [ -f patch.yaml ]; then
@@ -191,7 +191,7 @@ fi
 if [ -f patch-worker.yaml ]; then
   patches="$patches --config-patch-worker=@patch-worker.yaml"
 fi
-talosctl gen config "$cluster_name" "$k8s_endpoint" --with-secrets=secrets.yaml $patches --config-patch="$machine_config" --force
+talosctl gen config "$cluster_name" "$k8s_endpoint" --with-secrets=secrets.yaml $patches --config-patch="$machine_config" --force || exit $?
 
 file=$(mktemp)
 trap "rm -f \"$file\"" EXIT
