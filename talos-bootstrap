@@ -36,13 +36,13 @@ node_list_file=$(mktemp)
 
 # Screen: Seatching Talos nodes
 {
-  printf "%s\nXXX\n%s\n%s\nXXX\n" "10" "Searching Talos nodes in ${scan_networks}..."
+  printf "%s\nXXX\n%s\nXXX\n" "10" "Searching Talos nodes in ${scan_networks}..."
   candidate_nodes=$(nmap -Pn -n -p 50000 "${scan_networks}" -vv | awk '/Discovered open port/ {print $NF}')
 
   #echo found:
   #printf "  - %s\n" $candidate_nodes
 
-  printf "%s\nXXX\n%s\n%s\nXXX\n" "40" "Filtering nodes in maintenance mode..."
+  printf "%s\nXXX\n%s\nXXX\n" "40" "Filtering nodes in maintenance mode..."
   nodes=
   for node in ${candidate_nodes}; do
     if talosctl -n "${node}" get info -i >/dev/null 2>/dev/null; then
@@ -53,7 +53,7 @@ node_list_file=$(mktemp)
   #echo filtered:
   #printf "  - %s\n" $nodes
 
-  printf "%s\nXXX\n%s\n%s\nXXX\n" "60" "Collecting information about the nodes..."
+  printf "%s\nXXX\n%s\nXXX\n" "60" "Collecting information about the nodes..."
   node_list=$(
     seen=
     for node in ${nodes}; do
@@ -196,7 +196,7 @@ talosctl gen config "${cluster_name}" "${k8s_endpoint}" --with-secrets=secrets.y
 file=$(mktemp)
 
 # shellcheck disable=SC2064
-trap "rm -f \"${file}\"" EXIT
+trap "rm -f '${file}'" EXIT
 echo "Please confirm your configuration:
 
 ${machine_config}" > "${file}"
@@ -211,10 +211,10 @@ node="${address}"
 
 # Screen: Installation process
 {
-  printf "%s\nXXX\n%s\n%s\nXXX\n" "1" "Applying configuration..."
+  printf "%s\nXXX\n%s\nXXX\n" "1" "Applying configuration..."
   talosctl --talosconfig=talosconfig apply -e "${bootstrap_ip}" -n "${bootstrap_ip}" -f "${role}.yaml" -i >/dev/null 2>&1
 
-  printf "%s\nXXX\n%s\n%s\nXXX\n" "10" "Installing..."
+  printf "%s\nXXX\n%s\nXXX\n" "10" "Installing..."
 
   old_is_up=1
   old_is_pingable=1
@@ -248,10 +248,10 @@ node="${address}"
     fi
 
     case ${old_is_up}${old_is_pingable}${new_is_pingable} in
-      110) printf "%s\nXXX\n%s\n%s\nXXX\n" "20" "Installing... (port is open at ${node})" ;;
-      010) printf "%s\nXXX\n%s\n%s\nXXX\n" "50" "Rebooting... (node is pingable at ${node})" ;;
-      000) printf "%s\nXXX\n%s\n%s\nXXX\n" "70" "Rebooting... (node is not pingable)" ;;
-      001) printf "%s\nXXX\n%s\n%s\nXXX\n" "80" "Rebooting... (node is pingable again at ${node})" ;;
+      110) printf "%s\nXXX\n%s\n%s\nXXX\n" "20" "Installing..." "(port is open at ${node})" ;;
+      010) printf "%s\nXXX\n%s\n%s\nXXX\n" "50" "Rebooting..." "(node is pingable at ${node})" ;;
+      000) printf "%s\nXXX\n%s\n%s\nXXX\n" "70" "Rebooting..." "(node is not pingable at ${node})" ;;
+      001) printf "%s\nXXX\n%s\n%s\nXXX\n" "80" "Rebooting..." "(node is pingable again at ${node})" ;;
     esac
   done
 } | dialog --keep-tite --title talos-bootstrap --gauge "Please wait" 10 70 0 3>&1 1>&2 2>&3 || exit 1
