@@ -191,7 +191,7 @@ fi
 if [ -f patch-worker.yaml ]; then
   patches="${patches} --config-patch-worker=@patch-worker.yaml"
 fi
-talosctl gen config "${cluster_name}" "${k8s_endpoint}" --with-secrets=secrets.yaml "${patches}" --config-patch="${machine_config}" --force || exit $?
+talosctl gen config "${cluster_name}" "${k8s_endpoint}" --with-secrets=secrets.yaml ${patches} --config-patch="${machine_config}" --force || exit $?
 
 file=$(mktemp)
 
