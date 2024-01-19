@@ -67,7 +67,7 @@ node_list_file=$(mktemp)
       fi
       manufacturer=$(talosctl -n "${node}" get cpu -i -o jsonpath='{.spec.manufacturer}' | head -n1)
       cpu=$(talosctl -n "${node}" get cpu -i -o jsonpath='{.spec.threadCount}' -i | awk '{sum+=$1;} END{print sum "-core";}')
-      ram=$(talosctl -n "${node}" get ram -o jsonpath='{.spec.sizeMiB}' -i | awk '{sum+=$1;} END{print sum/1024 "GB";}')
+      ram=$(talosctl -n "${node}" get ram -o json -i | awk '/"sizeMiB":/ {sub(",", ""); sum+=$2} END{print sum/1024 "GB"}')
       disks=$(talosctl -n "${node}" disks -i | awk -F'  +' 'NR>1 {print $1 ":" $9}' | awk -F/ '$2 == "dev" {print $3}' | awk 'gsub(" ", "", $0)' | awk '$1=$1' RS="," OFS=",")
       echo "\"${name}\"" "\"${mac}, ${cpu} ${manufacturer:-CPU}, RAM: ${ram}, Disks: [${disks}]\""
     done
