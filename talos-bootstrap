@@ -37,7 +37,7 @@ node_list_file=$(mktemp)
 # Screen: Seatching Talos nodes
 {
   printf "%s\nXXX\n%s\nXXX\n" "10" "Searching Talos nodes in ${scan_networks}..."
-  candidate_nodes=$(nmap -Pn -n -p 50000 "${scan_networks}" -vv | awk '/Discovered open port/ {print $NF}')
+  candidate_nodes=$(nmap -Pn -n -p 50000 ${scan_networks} -vv | awk '/Discovered open port/ {print $NF}')
 
   #echo found:
   #printf "  - %s\n" $candidate_nodes
