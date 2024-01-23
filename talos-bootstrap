@@ -209,6 +209,9 @@ trap '' EXIT
 bootstrap_ip=${node}
 node="${address}"
 
+# Try applying config before install
+talosctl --talosconfig=talosconfig apply -e "${bootstrap_ip}" -n "${bootstrap_ip}" -f "${role}.yaml" -i --dry-run || exit $?
+
 # Screen: Installation process
 {
   printf "%s\nXXX\n%s\nXXX\n" "1" "Applying configuration..."
