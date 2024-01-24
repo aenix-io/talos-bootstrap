@@ -8,7 +8,7 @@ An interactive script for bootstrapping Kubernetes clusters on Talos OS.
 # Installation
 
 Install dependencies:
-- `talosctl`
+- `talosctl` (>=1.6.0)
 - `dialog`
 - `nmap`
 
@@ -26,6 +26,11 @@ sudo mv ./talos-bootstrap /usr/local/bin/talos-bootstrap
   (booting from [ISO](https://www.talos.dev/v1.5/talos-guides/install/bare-metal-platforms/iso/) or PXE using [matchbox](https://www.talos.dev/latest/talos-guides/install/bare-metal-platforms/matchbox/) is the best option)
 - Create a directory for holding your cluster configuration.
 - Run `talos-bootstrap` command for every node in your cluster.
+
+
+# Options
+
+- `-u` option can be used to upgrade or reconfigure nodes on existing cluster
 
 # Customizations
 
