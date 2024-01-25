@@ -245,6 +245,17 @@ EOT
 EOT
 )
 
+file=$(mktemp)
+# shellcheck disable=SC2064
+trap "rm -f '${file}'" EXIT
+echo "Please confirm your configuration:
+
+${machine_config}" > "${file}"
+
+dialog --keep-tite --title talos-bootstrap --ok-label "OK" --extra-button --extra-label "Cancel" --textbox "${file}" 0 0 || exit 0
+rm -f "${file}"
+trap '' EXIT
+
 # Generating configuration...
 if [ ! -f secrets.yaml ]; then
   talosctl gen secrets || exit $?
@@ -260,18 +271,6 @@ if [ -f patch-worker.yaml ]; then
   patches="${patches} --config-patch-worker=@patch-worker.yaml"
 fi
 talosctl gen config "${cluster_name}" "${k8s_endpoint}" --with-secrets=secrets.yaml ${patches} --config-patch="${machine_config}" --force || exit $?
-
-file=$(mktemp)
-
-# shellcheck disable=SC2064
-trap "rm -f '${file}'" EXIT
-echo "Please confirm your configuration:
-
-${machine_config}" > "${file}"
-
-dialog --keep-tite --title talos-bootstrap --ok-label "OK" --extra-button --extra-label "Cancel" --textbox "${file}" 0 0 || exit 0
-rm -f "${file}"
-trap '' EXIT
 
 if [ "$OP" = upgrade ]; then
   upgrade_option=$(dialog --keep-tite --title talos-bootstrap --menu "Select upgrade option" 0 0 0 \
