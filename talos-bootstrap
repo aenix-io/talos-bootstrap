@@ -7,6 +7,13 @@
 # - https://google.github.io/styleguide/shell.xml
 #
 
+UPGRADE=0
+OPTS="-i"
+if [ "$1" = "-u" ]; then
+  UPGRADE=1
+  OPTS="--talosconfig=talosconfig"
+fi
+
 # Load cluster configuration
 if [ -f cluster.conf ]; then
   for key in BOOTSTRAP_ETCD CLUSTER_NAME KUBERNETES_API_ENDPOINT VIP_ADDRESS; do
@@ -42,10 +49,14 @@ node_list_file=$(mktemp)
   #echo found:
   #printf "  - %s\n" $candidate_nodes
 
-  printf "%s\nXXX\n%s\nXXX\n" "40" "Filtering nodes in maintenance mode..."
+  if [ "$UPGRADE" = 1 ]; then
+    printf "%s\nXXX\n%s\nXXX\n" "40" "Filtering nodes in the cluster..."
+  else
+    printf "%s\nXXX\n%s\nXXX\n" "40" "Filtering nodes in maintenance mode..."
+  fi
   nodes=
   for node in ${candidate_nodes}; do
-    if talosctl -n "${node}" get info -i >/dev/null 2>/dev/null; then
+    if talosctl -e "${node}" -n "${node}" get machinestatus ${OPTS} >/dev/null 2>/dev/null; then
       nodes="${nodes} ${node}"
     fi
   done
@@ -57,18 +68,18 @@ node_list_file=$(mktemp)
   node_list=$(
     seen=
     for node in ${nodes}; do
-      mac=$(talosctl -n "${node}" get hardwareaddresses.net.talos.dev first -i -o jsonpath='{.spec.hardwareAddr}')
+      mac=$(talosctl -e "${node}" -n "${node}" get hardwareaddresses.net.talos.dev first ${OPTS} -o jsonpath='{.spec.hardwareAddr}')
       case " ${seen} " in *" ${mac} "*) continue ;; esac # remove duplicated nodes
       seen="${seen} ${mac}"
       name="${node}"
-      hostname=$(talosctl -n "${node}" get hostname -i -o jsonpath='{.spec.hostname}')
+      hostname=$(talosctl -e "${node}" -n "${node}" get hostname ${OPTS} -o jsonpath='{.spec.hostname}')
       if [ -n "${hostname}" ]; then
         name="${name} (${hostname})"
       fi
-      manufacturer=$(talosctl -n "${node}" get cpu -i -o jsonpath='{.spec.manufacturer}' | head -n1)
-      cpu=$(talosctl -n "${node}" get cpu -i -o jsonpath='{.spec.threadCount}' -i | awk '{sum+=$1;} END{print sum "-core";}')
-      ram=$(talosctl -n "${node}" get ram -o json -i | awk '/"sizeMiB":/ {sub(",", ""); sum+=$2} END{print sum/1024 "GB"}')
-      disks=$(talosctl -n "${node}" disks -i | awk -F'  +' 'NR>1 {print $1 ":" $9}' | awk -F/ '$2 == "dev" {print $3}' | awk 'gsub(" ", "", $0)' | awk '$1=$1' RS="," OFS=",")
+      manufacturer=$(talosctl -e "${node}" -n "${node}" get cpu ${OPTS} -o jsonpath='{.spec.manufacturer}' | head -n1)
+      cpu=$(talosctl -e "${node}" -n "${node}" get cpu ${OPTS} -o jsonpath='{.spec.threadCount}' | awk '{sum+=$1;} END{print sum "-core";}')
+      ram=$(talosctl -e "${node}" -n "${node}" get ram -o json ${OPTS} | awk '/"sizeMiB":/ {sub(",", ""); sum+=$2} END{print sum/1024 "GB"}')
+      disks=$(talosctl -e "${node}" -n "${node}" disks ${OPTS} | awk 'NR>1 {sub(/^[^/]*/, ""); print}' | awk -F'  +' '{print $1 ":" $9}' | awk -F/ '$2 == "dev" {print $3}' | awk 'gsub(" ", "", $0)' | awk '$1=$1' RS="," OFS=",")
       echo "\"${name}\"" "\"${mac}, ${cpu} ${manufacturer:-CPU}, RAM: ${ram}, Disks: [${disks}]\""
     done
   )
@@ -91,21 +102,21 @@ node=$(echo "${node_list}" | dialog --keep-tite --title talos-bootstrap --menu "
 node=$(echo "${node}" | awk '{print $1}')
 
 # Screen: Select role
-role=$(dialog --keep-tite --title talos-bootstrap --radiolist "Select role" 15 60 4 \
-  "controlplane" "Responsible for running cluster components" ON \
-  "worker" "Responsible for running workloads" OFF 3>&1 1>&2 2>&3) || exit 0
+role=$(dialog --keep-tite --title talos-bootstrap --menu "Select role" 0 0 0 \
+  "controlplane" "Responsible for running cluster components" \
+  "worker" "Responsible for running workloads" 3>&1 1>&2 2>&3) || exit 0
 
 # Screen: Select hostname
-default_hostname=$(talosctl -n "${node}" get hostname -i -o jsonpath='{.spec.hostname}')
+default_hostname=$(talosctl -e "${node}" -n "${node}" get hostname ${OPTS} -o jsonpath='{.spec.hostname}')
 hostname=$(dialog --keep-tite --title talos-bootstrap --inputbox "Enter hostname:" 8 40 "${default_hostname}" 3>&1 1>&2 2>&3) || exit 0
 
 # Screen: Select disk to install
-disks_list=$(talosctl -n "${node}" disks -i | awk 'NR>1 {printf "\"" $1 "\""; $1=""; print " \"" $0 "\""}')
+disks_list=$(talosctl -e "${node}" -n "${node}" disks ${OPTS} | awk 'NR>1 {sub(/^[^/]*/, ""); print}' | awk 'NR>1 {printf "\"" $1 "\""; $1=""; print " \"" $0 "\""}')
 disk=$(echo "${disks_list}" | dialog --keep-tite --title talos-bootstrap --menu "Select disk to install" 0 0 0 --file /dev/stdin 3>&1 1>&2 2>&3) || exit 0
 
 # Screen: Select interface
-link_list=$(talosctl -n "${node}" get link -i | awk -F'  +' 'NR>1 && $4 ~ /^(ID|eno|eth|enp|enx)/ {print $4 "|" $(NF-2)}')
-address_list=$(talosctl -n "${node}" get addresses -i | awk 'NR>1 {print $NF " " $(NF-1)}') || exit 0
+link_list=$(talosctl -e "${node}" -n "${node}" get link ${OPTS} | awk -F'  +' 'NR>1 && $4 ~ /^(ID|eno|eth|enp|enx)/ {print $4 "|" $(NF-2)}')
+address_list=$(talosctl -e "${node}" -n "${node}" get addresses ${OPTS} | awk 'NR>1 {print $NF " " $(NF-1)}') || exit 0
 
 interface_list=$(
   for link_mac in ${link_list}; do
@@ -120,24 +131,24 @@ interface_list=$(
   done
 )
 
-default_mac=$(talosctl -n "${node}" get hardwareaddresses.net.talos.dev first -i -o jsonpath='{.spec.hardwareAddr}')
+default_mac=$(talosctl -e "${node}" -n "${node}" get hardwareaddresses.net.talos.dev first ${OPTS} -o jsonpath='{.spec.hardwareAddr}')
 default_interface=$(echo "${link_list}" | awk -F'|' "\$2 == \"${default_mac}\" {print \$1}")
 
 interface=$(echo "${interface_list}" | dialog --keep-tite --title talos-bootstrap --default-item "${default_interface}" --menu "Select interface:" 0 0 0 --file /dev/stdin 3>&1 1>&2 2>&3) || exit 0
 
 # Screen: Configure networks
-default_addresses=$(talosctl -n "${node}" get nodeaddress default -i -o jsonpath='{.spec.addresses[*]}' | awk '$1=$1' RS=, OFS=,)
+default_addresses=$(talosctl -e "${node}" -n "${node}" get nodeaddress default ${OPTS} -o jsonpath='{.spec.addresses[*]}' | awk '$1=$1' RS=, OFS=,)
 addresses=$(dialog --keep-tite --title talos-bootstrap --inputbox "Enter addresses:" 8 40 "${default_addresses}" 3>&1 1>&2 2>&3) || exit 0
 addresses=$(echo "${addresses}" | awk '{$1=$1}1' OFS=",")
 # select first address
 address=$(echo "${addresses}" | awk -F/ '{print $1}')
 
 # Screen: Configure default gateway
-default_gateway=$(talosctl -n "${node}" get routes -i -o jsonpath='{.spec.gateway}' | grep -v '^$' -m1)
+default_gateway=$(talosctl -e "${node}" -n "${node}" get routes ${OPTS} -o json | awk '{gsub(/[{}]/, "\n"); printf $0}' | awk -F', *' '$0 ~ /"dst": *""/ && $0 !~ /"gateway": *""/ {for(i=1;i<=NF;i++) if ($i ~ /"gateway":/) {split($i,a,"\""); print a[4]}}')
 gateway=$(dialog --keep-tite --title talos-bootstrap --inputbox "Enter gateway:" 8 40 "${default_gateway}" 3>&1 1>&2 2>&3) || exit 0
 
 # Screen: Configure DNS servers
-default_dns_servers=$(talosctl -n "${node}" get resolvers resolvers -i -o jsonpath='{.spec.dnsServers[*]}' | awk '$1=$1' RS=" " OFS=" ")
+default_dns_servers=$(talosctl -e "${node}" -n "${node}" get resolvers resolvers ${OPTS} -o jsonpath='{.spec.dnsServers[*]}' | awk '$1=$1' RS=" " OFS=" ")
 dns_servers=$(dialog --keep-tite --title talos-bootstrap --inputbox "Enter DNS servers:" 8 80 "${default_dns_servers}" 3>&1 1>&2 2>&3) || exit 0
 dns_servers=$(echo "${dns_servers}" | awk '{$1=$1}1' OFS=",")
 
@@ -201,23 +212,47 @@ echo "Please confirm your configuration:
 
 ${machine_config}" > "${file}"
 
-dialog --keep-tite --title talos-bootstrap --ok-label "Install" --extra-button --extra-label "Cancel" --textbox "${file}" 0 0 || exit 0
+dialog --keep-tite --title talos-bootstrap --ok-label "OK" --extra-button --extra-label "Cancel" --textbox "${file}" 0 0 || exit 0
 rm -f "${file}"
 trap '' EXIT
+
+if [ "$UPGRADE" = 1 ]; then
+  upgrade_option=$(dialog --keep-tite --title talos-bootstrap --menu "Select upgrade option" 0 0 0 \
+    1 "apply config and perform upgrade" \
+    2 "apply config and perform upgrade (with preserve option)" \
+    3 "apply config on live and skip upgrade" 3>&1 1>&2 2>&3) || exit 0
+
+  should_upgrade=1
+  case ${upgrade_option} in
+     1) preserve_opt="--preserve" ;;
+     2) preserve_opt="" ;;
+     3) should_upgrade="0" ;;
+  esac
+fi
 
 # Swap IP addresses
 bootstrap_ip=${node}
 node="${address}"
 
 # Try applying config before install
-talosctl --talosconfig=talosconfig apply -e "${bootstrap_ip}" -n "${bootstrap_ip}" -f "${role}.yaml" -i --dry-run || exit $?
+talosctl apply -e "${bootstrap_ip}" -n "${bootstrap_ip}" -f "${role}.yaml" ${OPTS} --dry-run || exit $?
 
 # Screen: Installation process
 {
   printf "%s\nXXX\n%s\nXXX\n" "1" "Applying configuration..."
-  talosctl --talosconfig=talosconfig apply -e "${bootstrap_ip}" -n "${bootstrap_ip}" -f "${role}.yaml" -i >/dev/null 2>&1
+  talosctl apply -e "${bootstrap_ip}" -n "${bootstrap_ip}" -f "${role}.yaml" ${OPTS} >/dev/null 2>&1
 
-  printf "%s\nXXX\n%s\nXXX\n" "10" "Installing..."
+  if [ "$UPGRADE" = 1 ] && [ "${should_upgrade}" = 1 ]; then
+    image=$(talosctl -e "${node}" -n "${node}" get machineconfig -o jsonpath="{.spec.machine.install.image}" ${OPTS})
+    printf "%s\nXXX\n%s\n%s\nXXX\n" "10" "Scheduling upgrade..." "(image: $image)"
+    talosctl -e "${node}" -n "${node}" upgrade ${preserve_opt} -i "${image}" --wait=false ${OPTS} || exit $?
+  fi
+
+  if [ "$UPGRADE" = 0 ]; then
+    printf "%s\nXXX\n%s\nXXX\n" "10" "Installing..."
+  else
+    printf "%s\nXXX\n%s\n%s\nXXX\n" "20" "Upgrading..." "(this will take a while)"
+  fi
 
   old_is_up=1
   old_is_pingable=1
@@ -227,9 +262,12 @@ talosctl --talosconfig=talosconfig apply -e "${bootstrap_ip}" -n "${bootstrap_ip
     sleep 0.2
     if [ "${new_is_pingable}" = 0 ]; then
       if [ "${old_is_up}" = 1 ]; then
-        timeout 1 talosctl --talosconfig=talosconfig -e "${node}" -n "${node}" get info -i >/dev/null 2>&1
+        status=$(timeout 1 talosctl --talosconfig=talosconfig -e "${node}" -n "${node}" get machinestatus ${OPTS} -o jsonpath={.spec.stage}) 2>&1
         if [ $? = 124 ]; then
           old_is_up=0
+        fi
+	if [ "$status" = upgrading ] || [ "$status" = rebooting ]; then
+	  continue
         fi
       else
         if ! ping -W1 -c1 "${node}" >/dev/null 2>&1; then
@@ -246,7 +284,7 @@ talosctl --talosconfig=talosconfig apply -e "${bootstrap_ip}" -n "${bootstrap_ip
       fi
     fi
 
-    if timeout 1 talosctl --talosconfig=talosconfig -e "${node}" -n "${node}" get info >/dev/null 2>&1; then
+    if timeout 1 talosctl --talosconfig=talosconfig -e "${node}" -n "${node}" get machinestatus >/dev/null 2>&1; then
       new_is_up=1
     fi
 
