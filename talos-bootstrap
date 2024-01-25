@@ -201,7 +201,7 @@ addresses=$(echo "${addresses}" | awk '{$1=$1}1' OFS=",")
 address=$(echo "${addresses}" | awk -F/ '{print $1}')
 
 # Screen: Configure default gateway
-default_gateway=$(talosctl -e "${node}" -n "${node}" get routes ${OPTS} -o json | awk '{gsub(/[{}]/, "\n"); printf $0}' | awk -F', *' '$0 ~ /"dst": *""/ && $0 !~ /"gateway": *""/ {for(i=1;i<=NF;i++) if ($i ~ /"gateway":/) {split($i,a,"\""); print a[4]}}')
+default_gateway=$(talosctl -e "${node}" -n "${node}" get routes ${OPTS} -o json | awk '{gsub(/[{}]/, "\n"); printf $0}' | awk -F', *' '$0 ~ /"dst": *""/ && $0 !~ /"gateway": *""/ {for(i=1;i<=NF;i++) if ($i ~ /"gateway":/) {split($i,a,"\""); print a[4]; exit}}')
 gateway=$(dialog --keep-tite --title talos-bootstrap --inputbox "Enter gateway:" 8 40 "${default_gateway}" 3>&1 1>&2 2>&3) || exit 0
 
 # Screen: Configure DNS servers
