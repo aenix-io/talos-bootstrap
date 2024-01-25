@@ -7,12 +7,33 @@
 # - https://google.github.io/styleguide/shell.xml
 #
 
-UPGRADE=0
-OPTS="-i"
-if [ "$1" = "-u" ]; then
-  UPGRADE=1
-  OPTS="--talosconfig=talosconfig"
-fi
+case "$1" in
+  -a)
+    OP=install
+    OPTS="-i"
+    ;;
+  -u)
+    OP=upgrade
+    OPTS="--talosconfig=talosconfig"
+    ;;
+  -d)
+    OP=dashboard
+    OPTS="--talosconfig=talosconfig"
+    ;;
+  -r)
+    OP=reset
+    OPTS="--talosconfig=talosconfig"
+    ;;
+  *)
+    printf "USAGE:\n\t%s\n" "talosctl ACTION"
+    printf "ACTIONS:\n"
+    printf "\t%s\t%s\n" "-a" "Add a node to a new or existing cluster."
+    printf "\t%s\t%s\n" "-u" "Upgrade a node in an existing cluster."
+    printf "\t%s\t%s\n" "-r" "Reset and remove a node from an existing cluster."
+    printf "\t%s\t%s\n" "-d" "Dashboard for a node in an existing cluster."
+    exit 0
+    ;;
+esac
 
 # Load cluster configuration
 if [ -f cluster.conf ]; then
@@ -20,6 +41,11 @@ if [ -f cluster.conf ]; then
     val=$(awk "/^${key}=/ "'{sub(/^[^=]+="?/, ""); sub(/"$/, ""); print}' cluster.conf)
     export "CONFIG_${key}=${val}"
   done
+fi
+
+if [ "$OP" != install ]; then
+  # Generate talosconfig
+  talosctl gen config "$CONFIG_CLUSTER_NAME" "$CONFIG_KUBERNETES_API_ENDPOINT" --with-secrets=secrets.yaml --force -t talosconfig || exit $?
 fi
 
 # Screen: Enter cluster name
@@ -49,7 +75,7 @@ node_list_file=$(mktemp)
   #echo found:
   #printf "  - %s\n" $candidate_nodes
 
-  if [ "$UPGRADE" = 1 ]; then
+  if [ "$OP" != install ]; then
     printf "%s\nXXX\n%s\nXXX\n" "40" "Filtering nodes in the cluster..."
   else
     printf "%s\nXXX\n%s\nXXX\n" "40" "Filtering nodes in maintenance mode..."
@@ -97,9 +123,36 @@ Searched networks: ${scan_networks}" 10 60
 fi
 
 # Screen: Node list
-node=$(echo "${node_list}" | dialog --keep-tite --title talos-bootstrap --menu "Select node to bootstrap" 0 0 0 --file /dev/stdin 3>&1 1>&2 2>&3) || exit 0
+node=$(echo "${node_list}" | dialog --keep-tite --title talos-bootstrap --menu "Select node to $OP" 0 0 0 --file /dev/stdin 3>&1 1>&2 2>&3) || exit 0
 # cut hostname
 node=$(echo "${node}" | awk '{print $1}')
+
+# Run dashboard flow
+if [ "$OP" = dashboard ]; then
+  talosctl -e "${node}" -n "${node}" ${OPTS} dashboard
+  exit $?
+fi
+# Run reset flow
+if [ "$OP" = reset ]; then
+  reset_option=$(dialog --keep-tite --title talos-bootstrap --menu "Select reset option" 0 0 0 \
+    1 "graceful reset and reboot" \
+    2 "graceful reset and shutdown" \
+    3 "force reset and reboot" \
+    4 "force reset and shutdown" 3>&1 1>&2 2>&3) || exit 0
+  reset_opt=
+  case ${reset_option} in
+     1) reset_opt="--graceful=true --reboot=true" ;;
+     2) reset_opt="--graceful=true --reboot=false" ;;
+     3) reset_opt="--graceful=false --reboot=true" ;;
+     4) reset_opt="--graceful=false --reboot=false" ;;
+  esac
+  wipe_mode=$(dialog --keep-tite --title talos-bootstrap --menu "Select wipe option" 15 60 4 \
+    "all" "Wipe all disks" \
+    "system-disk" "Wipe system disk" \
+    "user-disks" "Wipe user disks" 3>&1 1>&2 2>&3) || exit 0
+  talosctl -e "${node}" -n "${node}" ${OPTS} ${reset_opt} --wipe-mode="${wipe_mode}" reset
+  exit $?
+fi
 
 # Screen: Select role
 role=$(dialog --keep-tite --title talos-bootstrap --menu "Select role" 0 0 0 \
@@ -216,7 +269,7 @@ dialog --keep-tite --title talos-bootstrap --ok-label "OK" --extra-button --extr
 rm -f "${file}"
 trap '' EXIT
 
-if [ "$UPGRADE" = 1 ]; then
+if [ "$OP" = upgrade ]; then
   upgrade_option=$(dialog --keep-tite --title talos-bootstrap --menu "Select upgrade option" 0 0 0 \
     1 "apply config and perform upgrade" \
     2 "apply config and perform upgrade (with preserve option)" \
@@ -242,13 +295,13 @@ talosctl apply -e "${bootstrap_ip}" -n "${bootstrap_ip}" -f "${role}.yaml" ${OPT
   printf "%s\nXXX\n%s\nXXX\n" "1" "Applying configuration..."
   talosctl apply -e "${bootstrap_ip}" -n "${bootstrap_ip}" -f "${role}.yaml" ${OPTS} >/dev/null 2>&1
 
-  if [ "$UPGRADE" = 1 ] && [ "${should_upgrade}" = 1 ]; then
+  if [ "$OP" = upgrade ] && [ "${should_upgrade}" = 1 ]; then
     image=$(talosctl -e "${node}" -n "${node}" get machineconfig -o jsonpath="{.spec.machine.install.image}" ${OPTS})
     printf "%s\nXXX\n%s\n%s\nXXX\n" "10" "Scheduling upgrade..." "(image: $image)"
     talosctl -e "${node}" -n "${node}" upgrade ${preserve_opt} -i "${image}" --wait=false ${OPTS} || exit $?
   fi
 
-  if [ "$UPGRADE" = 0 ]; then
+  if [ "$OP" = upgrade ]; then
     printf "%s\nXXX\n%s\nXXX\n" "10" "Installing..."
   else
     printf "%s\nXXX\n%s\n%s\nXXX\n" "20" "Upgrading..." "(this will take a while)"

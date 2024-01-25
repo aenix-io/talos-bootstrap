@@ -28,11 +28,19 @@ sudo mv ./talos-bootstrap /usr/local/bin/talos-bootstrap
 - Run `talos-bootstrap` command for every node in your cluster.
 
 
-# Options
+### Options
 
-- `-u` option can be used to upgrade or reconfigure nodes on existing cluster
+```
+USAGE:
+        talosctl ACTION
+ACTIONS:
+        -a      Add a node to a new or existing cluster.
+        -u      Upgrade a node in an existing cluster.
+        -r      Reset and remove a node from an existing cluster.
+        -d      Dashboard for a node in an existing cluster.
+```
 
-# Customizations
+### Customizations
 
 You can specify your customizations in one of the following files:
 
