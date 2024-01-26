@@ -7,31 +7,52 @@
 # - https://google.github.io/styleguide/shell.xml
 #
 
-case "$1" in
-  -a)
-    OP=install
+node=
+OP=
+while [ $# -gt 0 ]; do
+  key="$1"
+  case $key in
+  -n | --node)
+    node="$2"
+    shift
+    shift
+    ;;
+  -*)
+    echo "flag provided but not defined: ${1}" >&2
+    exit 1
+    ;;
+  *)
+    if [ -z "$OP" ]; then
+      OP="${1}"
+      shift
+    else
+      echo "exactly one action required" >&2
+      exit 1
+    fi
+    ;;
+  esac
+done
+
+case "$OP" in
+  install)
     OPTS="-i"
     ;;
-  -u)
-    OP=upgrade
-    OPTS="--talosconfig=talosconfig"
-    ;;
-  -d)
-    OP=dashboard
-    OPTS="--talosconfig=talosconfig"
-    ;;
-  -r)
-    OP=reset
+  upgrade|dashboard|reboot|shutdown|reset)
     OPTS="--talosconfig=talosconfig"
     ;;
   *)
-    printf "USAGE:\n\t%s\n" "talosctl ACTION"
-    printf "ACTIONS:\n"
-    printf "\t%s\t%s\n" "-a" "Add a node to a new or existing cluster."
-    printf "\t%s\t%s\n" "-u" "Upgrade a node in an existing cluster."
-    printf "\t%s\t%s\n" "-r" "Reset and remove a node from an existing cluster."
-    printf "\t%s\t%s\n" "-d" "Dashboard for a node in an existing cluster."
-    exit 0
+    printf "USAGE:\n\t%s\n" "talos-bootstrap ACTION [OPTIONS]"
+    printf "\nACTIONS:\n"
+    printf "\t%s\t\t%s\n" "help" "Show this help message."
+    printf "\t%s\t\t%s\n" "install" "Setup a node for a new or existing cluster."
+    printf "\t%s\t\t%s\n" "upgrade" "Upgrade a node in an existing cluster."
+    printf "\t%s\t\t%s\n" "reset" "Reset and remove a node from an existing cluster."
+    printf "\t%s\t\t%s\n" "reboot" "Reboot a node."
+    printf "\t%s\t%s\n" "shutdown" "Shutdown a node."
+    printf "\t%s\t%s\n" "dashboard" "Open dashboard for a node."
+    printf "\nOPTIONS:\n"
+    printf "\t%s <%s>\t%s\n" "-n, --node" "address" "Node address"
+    exit 1
     ;;
 esac
 
@@ -64,72 +85,78 @@ else
   cluster_name=$(dialog --keep-tite --title talos-bootstrap --inputbox "Enter cluster name:" 8 40 "${default_cluster_name}" 3>&1 1>&2 2>&3) || exit 0
 fi
 
-# Screen: Enter networks to scan
-default_scan_networks=$(ip -o route | awk '$3 !~ /^(docker|cni)/ && $2 == "dev" {print $1}' | awk '$1=$1' RS=" " OFS=" ")
-scan_networks=$(dialog --keep-tite --title talos-bootstrap --inputbox "Enter networks to scan:" 8 80 "${default_scan_networks}" 3>&1 1>&2 2>&3) || exit 0
-scan_networks=$(echo "${scan_networks}" | awk -F, '{$1=$1}1' OFS=' ')
+if [ -n "${node}" ]; then
+  talosctl -e "${node}" -n "${node}" get machinestatus ${OPTS} >/dev/null || exit $?
+else
+  # Screen: Enter networks to scan
+  default_scan_networks=$(ip -o route | awk '$3 !~ /^(docker|cni)/ && $2 == "dev" {print $1}' | awk '$1=$1' RS=" " OFS=" ")
+  scan_networks=$(dialog --keep-tite --title talos-bootstrap --inputbox "Enter networks to scan:" 8 80 "${default_scan_networks}" 3>&1 1>&2 2>&3) || exit 0
+  scan_networks=$(echo "${scan_networks}" | awk -F, '{$1=$1}1' OFS=' ')
 
-node_list_file=$(mktemp)
+  node_list_file=$(mktemp)
 
-# Screen: Seatching Talos nodes
-{
-  printf "%s\nXXX\n%s\nXXX\n" "10" "Searching Talos nodes in ${scan_networks}..."
-  candidate_nodes=$(nmap -Pn -n -p 50000 ${scan_networks} -vv | awk '/Discovered open port/ {print $NF}')
+  # Screen: Seatching Talos nodes
+  {
+    printf "%s\nXXX\n%s\nXXX\n" "10" "Searching Talos nodes in ${scan_networks}..."
+    candidate_nodes=$(nmap -Pn -n -p 50000 ${scan_networks} -vv | awk '/Discovered open port/ {print $NF}')
 
-  #echo found:
-  #printf "  - %s\n" $candidate_nodes
+    #echo found:
+    #printf "  - %s\n" $candidate_nodes
 
-  if [ "$OP" != install ]; then
-    printf "%s\nXXX\n%s\nXXX\n" "40" "Filtering nodes in the cluster..."
-  else
-    printf "%s\nXXX\n%s\nXXX\n" "40" "Filtering nodes in maintenance mode..."
-  fi
-  nodes=
-  for node in ${candidate_nodes}; do
-    if talosctl -e "${node}" -n "${node}" get machinestatus ${OPTS} >/dev/null 2>/dev/null; then
-      nodes="${nodes} ${node}"
+    if [ "$OP" != install ]; then
+      printf "%s\nXXX\n%s\nXXX\n" "40" "Filtering nodes in the cluster..."
+    else
+      printf "%s\nXXX\n%s\nXXX\n" "40" "Filtering nodes in maintenance mode..."
     fi
-  done
-  
-  #echo filtered:
-  #printf "  - %s\n" $nodes
-
-  printf "%s\nXXX\n%s\nXXX\n" "60" "Collecting information about the nodes..."
-  node_list=$(
-    seen=
-    for node in ${nodes}; do
-      mac=$(talosctl -e "${node}" -n "${node}" get hardwareaddresses.net.talos.dev first ${OPTS} -o jsonpath='{.spec.hardwareAddr}')
-      case " ${seen} " in *" ${mac} "*) continue ;; esac # remove duplicated nodes
-      seen="${seen} ${mac}"
-      name="${node}"
-      hostname=$(talosctl -e "${node}" -n "${node}" get hostname ${OPTS} -o jsonpath='{.spec.hostname}')
-      if [ -n "${hostname}" ]; then
-        name="${name} (${hostname})"
+    nodes=
+    for node in ${candidate_nodes}; do
+      if talosctl -e "${node}" -n "${node}" get machinestatus ${OPTS} >/dev/null 2>/dev/null; then
+        nodes="${nodes} ${node}"
       fi
-      manufacturer=$(talosctl -e "${node}" -n "${node}" get cpu ${OPTS} -o jsonpath='{.spec.manufacturer}' | head -n1)
-      cpu=$(talosctl -e "${node}" -n "${node}" get cpu ${OPTS} -o jsonpath='{.spec.threadCount}' | awk '{sum+=$1;} END{print sum "-core";}')
-      ram=$(talosctl -e "${node}" -n "${node}" get ram -o json ${OPTS} | awk '/"sizeMiB":/ {sub(",", ""); sum+=$2} END{print sum/1024 "GB"}')
-      disks=$(talosctl -e "${node}" -n "${node}" disks ${OPTS} | awk 'NR>1 {sub(/^[^/]*/, ""); print}' | awk -F'  +' '{print $1 ":" $9}' | awk -F/ '$2 == "dev" {print $3}' | awk 'gsub(" ", "", $0)' | awk '$1=$1' RS="," OFS=",")
-      echo "\"${name}\"" "\"${mac}, ${cpu} ${manufacturer:-CPU}, RAM: ${ram}, Disks: [${disks}]\""
     done
-  )
 
-  echo "${node_list}" > "${node_list_file}"
-} | dialog --keep-tite --title talos-bootstrap --gauge "Please wait" 10 70 0 3>&1 1>&2 2>&3 || exit 0
+    #echo filtered:
+    #printf "  - %s\n" $nodes
 
-node_list=$(cat "${node_list_file}")
+    printf "%s\nXXX\n%s\nXXX\n" "60" "Collecting information about the nodes..."
+    node_list=$(
+      seen=
+      for node in ${nodes}; do
+        mac=$(talosctl -e "${node}" -n "${node}" get hardwareaddresses.net.talos.dev first ${OPTS} -o jsonpath='{.spec.hardwareAddr}')
+        case " ${seen} " in *" ${mac} "*) continue ;; esac # remove duplicated nodes
+        seen="${seen} ${mac}"
+        name="${node}"
+        hostname=$(talosctl -e "${node}" -n "${node}" get hostname ${OPTS} -o jsonpath='{.spec.hostname}')
+        if [ -n "${hostname}" ]; then
+          name="${name} (${hostname})"
+        fi
+        manufacturer=$(talosctl -e "${node}" -n "${node}" get cpu ${OPTS} -o jsonpath='{.spec.manufacturer}' | head -n1)
+        cpu=$(talosctl -e "${node}" -n "${node}" get cpu ${OPTS} -o jsonpath='{.spec.threadCount}' | awk '{sum+=$1;} END{print sum "-core";}')
+        ram=$(talosctl -e "${node}" -n "${node}" get ram -o json ${OPTS} | awk '/"sizeMiB":/ {sub(",", ""); sum+=$2} END{print sum/1024 "GB"}')
+        disks=$(talosctl -e "${node}" -n "${node}" disks ${OPTS} | awk 'NR>1 {sub(/^[^/]*/, ""); print}' | awk -F'  +' '{print $1 ":" $9}' | awk -F/ '$2 == "dev" {print $3}' | awk 'gsub(" ", "", $0)' | awk '$1=$1' RS="," OFS=",")
+        echo "\"${name}\"" "\"${mac}, ${cpu} ${manufacturer:-CPU}, RAM: ${ram}, Disks: [${disks}]\""
+      done
+    )
 
-if [ -z "${node_list}" ]; then
-  dialog --keep-tite --title talos-bootstrap --msgbox "No Talos nodes in maintenance mode found!
+    echo "${node_list}" > "${node_list_file}"
+  } | dialog --keep-tite --title talos-bootstrap --gauge "Please wait" 10 70 0 3>&1 1>&2 2>&3 || exit 0
 
-Searched networks: ${scan_networks}" 10 60
-  exit 1
+  node_list=$(cat "${node_list_file}")
+
+  if [ -z "${node_list}" ]; then
+    dialog --keep-tite --title talos-bootstrap --msgbox "No Talos nodes in maintenance mode found!
+
+  Searched networks: ${scan_networks}" 10 60
+    exit 1
+  fi
+
+  # Screen: Node list
+  node=$(echo "${node_list}" | dialog --keep-tite --title talos-bootstrap --menu "Select node to $OP" 0 0 0 --file /dev/stdin 3>&1 1>&2 2>&3) || exit 0
+  # cut hostname
+  node=$(echo "${node}" | awk '{print $1}')
 fi
 
-# Screen: Node list
-node=$(echo "${node_list}" | dialog --keep-tite --title talos-bootstrap --menu "Select node to $OP" 0 0 0 --file /dev/stdin 3>&1 1>&2 2>&3) || exit 0
-# cut hostname
-node=$(echo "${node}" | awk '{print $1}')
+# --- Management flows beginning
 
 # Run dashboard flow
 if [ "$OP" = dashboard ]; then
@@ -157,6 +184,28 @@ if [ "$OP" = reset ]; then
   talosctl -e "${node}" -n "${node}" ${OPTS} ${reset_opt} --wipe-mode="${wipe_mode}" reset
   exit $?
 fi
+# Run reboot flow
+if [ "$OP" = reboot ]; then
+  reboot_mode=$(dialog --keep-tite --title talos-bootstrap --menu "Select reboot option" 15 60 4 \
+    "default" "Default mode" \
+    "powercycle" "Skips kexec" 3>&1 1>&2 2>&3) || exit 0
+  talosctl -e "${node}" -n "${node}" ${OPTS} ${reboot_opt} --mode="${reboot_mode}" reboot
+  exit $?
+fi
+# Run shutdown flow
+if [ "$OP" = shutdown ]; then
+  shutdown_option=$(dialog --keep-tite --title talos-bootstrap --menu "Select shutdown option" 15 60 4 \
+    "1" "Default mode" \
+    "2" "Force a node to shutdown without a cordon/drain" 3>&1 1>&2 2>&3) || exit 0
+  case ${shutdown_option} in
+     1) shutdown_opt="--force=false" ;;
+     2) shutdown_opt="--force=true" ;;
+  esac
+  talosctl -e "${node}" -n "${node}" ${OPTS} ${shutdown_opt} shutdown
+  exit $?
+fi
+
+# --- Management flows end
 
 # Screen: Select role
 role=$(dialog --keep-tite --title talos-bootstrap --menu "Select role" 0 0 0 \
@@ -324,8 +373,8 @@ talosctl apply -e "${bootstrap_ip}" -n "${bootstrap_ip}" -f "${role}.yaml" ${OPT
         if [ $? = 124 ]; then
           old_is_up=0
         fi
-	if [ "$status" = upgrading ] || [ "$status" = rebooting ]; then
-	  continue
+        if [ "$status" = upgrading ] || [ "$status" = rebooting ]; then
+          continue
         fi
       else
         if ! ping -W1 -c1 "${node}" >/dev/null 2>&1; then
@@ -389,9 +438,4 @@ if [ ! -f kubeconfig ]; then
 fi
 
 # Screen: Complete installation
-dialog --keep-tite --title talos-bootstrap --msgbox "Installation finished!
-
-You will now be directed to the dashboard" 0 0
-
-# Screen: Talos dashboard
-talosctl --talosconfig=talosconfig -e "${node}" -n "${node}" dashboard
+dialog --keep-tite --title talos-bootstrap --msgbox "Installation finished!" 5 26
