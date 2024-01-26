@@ -32,12 +32,19 @@ sudo mv ./talos-bootstrap /usr/local/bin/talos-bootstrap
 
 ```
 USAGE:
-        talosctl ACTION
+        talos-bootstrap ACTION [OPTIONS]
+
 ACTIONS:
-        -a      Add a node to a new or existing cluster.
-        -u      Upgrade a node in an existing cluster.
-        -r      Reset and remove a node from an existing cluster.
-        -d      Dashboard for a node in an existing cluster.
+        help            Show this help message.
+        install         Setup a node for a new or existing cluster.
+        upgrade         Upgrade a node in an existing cluster.
+        reset           Reset and remove a node from an existing cluster.
+        reboot          Reboot a node.
+        shutdown        Shutdown a node.
+        dashboard       Open dashboard for a node.
+
+OPTIONS:
+        -n, --node <address>    Node address
 ```
 
 ### Customizations
