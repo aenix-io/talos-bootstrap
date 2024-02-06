@@ -217,7 +217,7 @@ default_hostname=$(talosctl -e "${node}" -n "${node}" get hostname ${OPTS} -o js
 hostname=$(dialog --keep-tite --title talos-bootstrap --inputbox "Enter hostname:" 8 40 "${default_hostname}" 3>&1 1>&2 2>&3) || exit 0
 
 # Screen: Select disk to install
-disks_list=$(talosctl -e "${node}" -n "${node}" disks ${OPTS} | awk 'NR>1 {sub(/^[^/]*/, ""); print}' | awk 'NR>1 {printf "\"" $1 "\""; $1=""; print " \"" $0 "\""}')
+disks_list=$(talosctl -e "${node}" -n "${node}" disks ${OPTS} | awk 'NR>1 {sub(/^[^/]*/, ""); print}' | awk '{printf "\"" $1 "\""; $1=""; print " \"" $0 "\""}')
 disk=$(echo "${disks_list}" | dialog --keep-tite --title talos-bootstrap --menu "Select disk to install" 0 0 0 --file /dev/stdin 3>&1 1>&2 2>&3) || exit 0
 
 # Screen: Select interface
