@@ -221,7 +221,7 @@ disks_list=$(talosctl -e "${node}" -n "${node}" disks ${OPTS} | awk 'NR>1 {sub(/
 disk=$(echo "${disks_list}" | dialog --keep-tite --title talos-bootstrap --menu "Select disk to install" 0 0 0 --file /dev/stdin 3>&1 1>&2 2>&3) || exit 0
 
 # Screen: Select interface
-link_list=$(talosctl -e "${node}" -n "${node}" get link ${OPTS} | awk -F'  +' 'NR>1 && $4 ~ /^(ID|eno|eth|enp|enx)/ {print $4 "|" $(NF-2)}')
+link_list=$(talosctl -e "${node}" -n "${node}" get link ${OPTS} | awk -F'  +' 'NR>1 && $4 ~ /^(ID|eno|eth|enp|enx|ens)/ {print $4 "|" $(NF-2)}')
 address_list=$(talosctl -e "${node}" -n "${node}" get addresses ${OPTS} | awk 'NR>1 {print $NF " " $(NF-1)}') || exit 0
 
 interface_list=$(
