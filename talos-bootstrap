@@ -213,7 +213,8 @@ fi
 # --- Management flows end
 
 # Screen: Select role
-role=$(dialog --keep-tite --title talos-bootstrap --menu "Select role" 0 0 0 \
+default_role=$(talosctl -e "${node}" -n "${node}" get machinetype machine-type ${OPTS} -o jsonpath={.spec})
+role=$(dialog --keep-tite --title talos-bootstrap --default-item "${default_role}" --menu "Select role" 0 0 0 \
   "controlplane" "Responsible for running cluster components" \
   "worker" "Responsible for running workloads" 3>&1 1>&2 2>&3) || exit 0
 
