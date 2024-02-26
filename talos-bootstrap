@@ -223,7 +223,8 @@ hostname=$(dialog --keep-tite --title talos-bootstrap --inputbox "Enter hostname
 
 # Screen: Select disk to install
 disks_list=$(talosctl -e "${node}" -n "${node}" disks ${OPTS} | awk 'NR>1 {sub(/^[^/]*/, ""); print}' | awk '{printf "\"" $1 "\""; $1=""; print " \"" $0 "\""}')
-disk=$(echo "${disks_list}" | dialog --keep-tite --title talos-bootstrap --menu "Select disk to install" 0 0 0 --file /dev/stdin 3>&1 1>&2 2>&3) || exit 0
+default_disk=$(echo "$disk_list" | awk '/*"$/ {gsub(/"/, "", $1); print $1}')
+disk=$(echo "${disks_list}" | dialog --keep-tite --title talos-bootstrap --default-item "${default_disk}" --menu "Select disk to install" 0 0 0 --file /dev/stdin 3>&1 1>&2 2>&3) || exit 0
 
 # Screen: Select interface
 link_list=$(talosctl -e "${node}" -n "${node}" get link ${OPTS} | awk -F'  +' 'NR>1 && $4 ~ /^(ID|eno|eth|enp|enx|ens)/ {print $4 "|" $(NF-2)}')
