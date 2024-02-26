@@ -144,7 +144,12 @@ else
   node_list=$(cat "${node_list_file}")
 
   if [ -z "${node_list}" ]; then
-    dialog --keep-tite --title talos-bootstrap --msgbox "No Talos nodes in maintenance mode found!
+    if [ "$OP" != install ]; then
+      message="No Talos nodes found in the cluster!"
+    else
+      message="No Talos nodes in maintenance mode found!"
+    fi
+    dialog --keep-tite --title talos-bootstrap --msgbox "$message
 
   Searched networks: ${scan_networks}" 10 60
     exit 1
