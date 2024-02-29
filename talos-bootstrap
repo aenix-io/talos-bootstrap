@@ -228,8 +228,11 @@ default_disk=$(echo "$disk_list" | awk '/*"$/ {gsub(/"/, "", $1); print $1}')
 disk=$(echo "${disks_list}" | dialog --keep-tite --title talos-bootstrap --default-item "${default_disk}" --menu "Select disk to install" 0 0 0 --file /dev/stdin 3>&1 1>&2 2>&3) || exit 0
 
 # Screen: Select interface
-link_list=$(talosctl -e "${node}" -n "${node}" get link ${OPTS} | awk -F'  +' 'NR>1 && $4 ~ /^(ID|eno|eth|enp|enx|ens)/ {print $4 "|" $(NF-2)}')
-address_list=$(talosctl -e "${node}" -n "${node}" get addresses ${OPTS} | awk 'NR>1 {print $NF " " $(NF-1)}') || exit 0
+link_list=$(talosctl -e "${node}" -n "${node}" get link ${OPTS} | awk -F'  +' 'NR>1 && $4 ~ /^(ID|eno|eth|enp|enx|ens|bond)/ {print $4 "|" $(NF-2)}')
+address_list=$(talosctl -e "${node}" -n "${node}" get addresses ${OPTS} | awk 'NR>1 {print $NF " " $(NF-1)}')
+
+default_addresses=$(talosctl -e "${node}" -n "${node}" get nodeaddress default ${OPTS} -o jsonpath='{.spec.addresses[*]}' | awk '$1=$1' RS=, OFS=,)
+default_interface=$(talosctl -e "${node}" -n "${node}" get addresses ${OPTS} | awk "BEGIN { split(\"${default_addresses}\", arr, \",\"); } {for (i in arr) if (\$(NF-1) == arr[i]) print \$NF}" | awk 'NR==1')
 
 interface_list=$(
   for link_mac in ${link_list}; do
@@ -240,14 +243,68 @@ interface_list=$(
     if [ -n "${ips}" ]; then
       details="${mac} (${ips})"
     fi
-    echo "\"${link}\" \"${details}\""
+    echo "${link} \"${details}\""
   done
 )
 
-default_mac=$(talosctl -e "${node}" -n "${node}" get hardwareaddresses.net.talos.dev first ${OPTS} -o jsonpath='{.spec.hardwareAddr}')
-default_interface=$(echo "${link_list}" | awk -F'|' "\$2 == \"${default_mac}\" {print \$1}")
-
 interface=$(echo "${interface_list}" | dialog --keep-tite --title talos-bootstrap --default-item "${default_interface}" --menu "Select interface:" 0 0 0 --file /dev/stdin 3>&1 1>&2 2>&3) || exit 0
+
+interface_kind=$(talosctl -e "${node}" -n "${node}" get link "${interface}" ${OPTS} -o jsonpath='{.spec.kind}') || exit $?
+
+if [ "$interface_kind" = bond ]; then
+  # Screen: Select slave interfaces for bonding
+  interface_index=$(talosctl -e "${node}" -n "${node}" get link "${interface}" ${OPTS} -o jsonpath='{.spec.index}') || exit $?
+  default_slave_interfaces=$(talosctl -e "${node}" -n "${node}" get link ${OPTS} -o jsonpath='{.metadata.id}{.spec}' | \
+    awk '{sub("}", "\n"); print}' ORS=""| awk -F '{' '/masterIndex/ {sub("{.*masterIndex", ""); print}' | awk '{sub(",.*", ""); sub("\":", ""); if ($2 == '"${interface_index}"') print $1}')
+  slave_interfaces_list=$(echo "$interface_list" | awk '$1 !~ /^bond/' | while read link details; do
+    echo "$link" "$details" "$(echo "$default_slave_interfaces" | awk "\$1 == \"$link\" {found=1; exit} END {print found ? \"on\" : \"off\"}")"
+  done)
+  slave_interfaces=$(echo "${slave_interfaces_list}" | dialog --keep-tite --title talos-bootstrap --checklist "Select interfaces for bonding:" 0 0 0 --file /dev/stdin 3>&1 1>&2 2>&3) || exit 0
+  slave_interfaces=$(echo "${slave_interfaces}" | awk '{$1=$1}1' OFS=",")
+
+  if [ -z "$slave_interfaces" ]; then
+    echo "Error: at least one slave must be specified for bonding interface!" >&2
+    exit 1
+  fi
+
+  # Screen: Select bond mode
+  default_bond_mode=$(talosctl -e "${node}" -n "${node}" get link ${OPTS} -o jsonpath='{.spec.bondMaster.mode}' "${interface}")
+  bond_mode=$(dialog --keep-tite --title talos-bootstrap --default-item "${default_bond_mode}" --menu "Select bond mode" 0 0 0 \
+    "balance-rr" "Balance Round-Robin" \
+    "active-backup" "Active-Backup" \
+    "balance-xor" "Balance-xor" \
+    "broadcast" "Broadcast" \
+    "802.3ad" "Dynamic link aggregation" \
+    "balance-tlb" "Adaptive transmit load balancing" \
+    "balance-alb" "Adaptive load balancing" 3>&1 1>&2 2>&3) || exit 0
+
+  if [ "${bond_mode}" = "802.3ad" ]; then
+    # Screen: Select bond lacp rate
+    default_bond_lacp_rate=$(talosctl -e "${node}" -n "${node}" get link ${OPTS} -o jsonpath='{.spec.bondMaster.lacpRate}' "${interface}")
+    bond_lacp_rate=$(dialog --keep-tite --title talos-bootstrap --default-item "${default_bond_lacp_rate}" --menu "Select bond lacp rate" 0 0 0 \
+      "slow" "transmit LACPDUs every 30 seconds" \
+      "fast" "transmit LACPDUs every 1 second" 3>&1 1>&2 2>&3) || exit 0
+  fi
+
+  # Screen: Select bond xmitHashPolicy
+  default_bond_xmit_hash_policy=$(talosctl -e "${node}" -n "${node}" get link ${OPTS} -o jsonpath='{.spec.bondMaster.xmitHashPolicy}' "${interface}")
+  bond_lacp_xmit_hash_policy=$(dialog --keep-tite --title talos-bootstrap --default-item "${default_bond_xmit_hash_policy}" --menu "Select bond xmit_hash_policy" 0 0 0 \
+    "layer2" "uses XOR of hardware MAC addresses and packet type ID field to generate the hash." \
+    "layer2+3" "uses a combination of layer2 and layer3 protocol information to generate the hash." \
+    "layer3+4" "uses upper layer protocol information, when available, to generate the hash." 3>&1 1>&2 2>&3) || exit 0
+
+  # Screen: Enter bond miimon
+  default_bond_miimon=$(talosctl -e "${node}" -n "${node}" get link ${OPTS} -o jsonpath='{.spec.bondMaster.miimon}' "${interface}")
+  bond_miimon=$(dialog --keep-tite --title talos-bootstrap --inputbox "Enter bond miimon:" 8 40 "${default_bond_miimon:-0}" 3>&1 1>&2 2>&3) || exit 0
+
+  # Screen: Enter bond updelay
+  default_bond_updelay=$(talosctl -e "${node}" -n "${node}" get link ${OPTS} -o jsonpath='{.spec.bondMaster.updelay}' "${interface}")
+  bond_updelay=$(dialog --keep-tite --title talos-bootstrap --inputbox "Enter bond updelay:" 8 40 "${default_bond_updelay:-0}" 3>&1 1>&2 2>&3) || exit 0
+
+  # Screen: Enter bond downdelay
+  default_bond_downdelay=$(talosctl -e "${node}" -n "${node}" get link ${OPTS} -o jsonpath='{.spec.bondMaster.downdelay}' "${interface}")
+  bond_downdelay=$(dialog --keep-tite --title talos-bootstrap --inputbox "Enter bond downdelay:" 8 40 "${default_bond_downdelay:-0}" 3>&1 1>&2 2>&3) || exit 0
+fi
 
 # Screen: Configure networks
 default_addresses=$(talosctl -e "${node}" -n "${node}" get nodeaddress default ${OPTS} -o jsonpath='{.spec.addresses[*]}' | awk '$1=$1' RS=, OFS=,)
@@ -291,6 +348,24 @@ EOT
     cat <<EOT
       vip:
         ip: ${vip_address}
+EOT
+  fi
+  if [ "${interface_kind}" = bond ]; then
+  cat <<EOT
+      bond:
+        mode: ${bond_mode}
+EOT
+    if [ "${bond_mode}" = "802.3ad" ]; then
+      cat <<EOT
+        lacpRate: ${bond_lacp_rate}
+EOT
+    fi
+  cat <<EOT
+        xmitHashPolicy: ${bond_lacp_xmit_hash_policy}
+        miimon: ${bond_miimon}
+        updelay: ${bond_updelay}
+        downdelay: ${bond_downdelay}
+        interfaces: [$slave_interfaces]
 EOT
   fi
   cat <<EOT
