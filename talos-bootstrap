@@ -119,26 +119,23 @@ else
     #printf "  - %s\n" $nodes
 
     printf "%s\nXXX\n%s\nXXX\n" "60" "Collecting information about the nodes..."
-    node_list=$(
-      seen=
-      for node in ${nodes}; do
-        mac=$(talosctl -e "${node}" -n "${node}" get hardwareaddresses.net.talos.dev first ${OPTS} -o jsonpath='{.spec.hardwareAddr}')
-        case " ${seen} " in *" ${mac} "*) continue ;; esac # remove duplicated nodes
-        seen="${seen} ${mac}"
-        name="${node}"
-        hostname=$(talosctl -e "${node}" -n "${node}" get hostname ${OPTS} -o jsonpath='{.spec.hostname}')
-        if [ -n "${hostname}" ]; then
-          name="${name} (${hostname})"
-        fi
-        manufacturer=$(talosctl -e "${node}" -n "${node}" get cpu ${OPTS} -o jsonpath='{.spec.manufacturer}' | head -n1)
-        cpu=$(talosctl -e "${node}" -n "${node}" get cpu ${OPTS} -o jsonpath='{.spec.threadCount}' | awk '{sum+=$1;} END{print sum "-core";}')
-        ram=$(talosctl -e "${node}" -n "${node}" get ram -o json ${OPTS} | awk '/"sizeMiB":/ {sub(",", ""); sum+=$2} END{print sum/1024 "GB"}')
-        disks=$(talosctl -e "${node}" -n "${node}" disks ${OPTS} | awk 'NR>1 {sub(/^[^/]*/, ""); print}' | awk -F'  +' '{print $1 ":" $9}' | awk -F/ '$2 == "dev" {print $3}' | awk 'gsub(" ", "", $0)' | awk '$1=$1' RS="," OFS=",")
-        echo "\"${name}\"" "\"${mac}, ${cpu} ${manufacturer:-CPU}, RAM: ${ram}, Disks: [${disks}]\""
-      done
-    )
+    seen=
+    for node in ${nodes}; do
+      mac=$(talosctl -e "${node}" -n "${node}" get hardwareaddresses.net.talos.dev first ${OPTS} -o jsonpath='{.spec.hardwareAddr}')
+      case " ${seen} " in *" ${mac} "*) continue ;; esac # remove duplicated nodes
+      seen="${seen} ${mac}"
+      name="${node}"
+      hostname=$(talosctl -e "${node}" -n "${node}" get hostname ${OPTS} -o jsonpath='{.spec.hostname}')
+      if [ -n "${hostname}" ]; then
+        name="${name} (${hostname})"
+      fi
+      manufacturer=$(talosctl -e "${node}" -n "${node}" get cpu ${OPTS} -o jsonpath='{.spec.manufacturer}' | head -n1)
+      cpu=$(talosctl -e "${node}" -n "${node}" get cpu ${OPTS} -o jsonpath='{.spec.threadCount}' | awk '{sum+=$1;} END{print sum "-core";}')
+      ram=$(talosctl -e "${node}" -n "${node}" get ram -o json ${OPTS} | awk '/"sizeMiB":/ {sub(",", ""); sum+=$2} END{print sum/1024 "GB"}')
+      disks=$(talosctl -e "${node}" -n "${node}" disks ${OPTS} | awk 'NR>1 {sub(/^[^/]*/, ""); print}' | awk -F'  +' '{print $1 ":" $9}' | awk -F/ '$2 == "dev" {print $3}' | awk 'gsub(" ", "", $0)' | awk '$1=$1' RS="," OFS=",")
+      echo "\"${name}\"" "\"${mac}, ${cpu} ${manufacturer:-CPU}, RAM: ${ram}, Disks: [${disks}]\"" >> "${node_list_file}"
+    done
 
-    echo "${node_list}" > "${node_list_file}"
   } | dialog --keep-tite --title talos-bootstrap --gauge "Please wait" 10 70 0 3>&1 1>&2 2>&3 || exit 0
 
   node_list=$(cat "${node_list_file}")
