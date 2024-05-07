@@ -57,6 +57,12 @@ You can specify your customizations in one of the following files:
 
 Read the [Configuration Patches](https://www.talos.dev/latest/talos-guides/configuration/patching/) documentation for more details.
 
+### Advanced configuration management
+
+Looking for enhanced, non-interactive version of talos-bootstrap?
+
+Take a look at [Talm](https://github.com/aenix-io/talm) project.
+
 # Copyright
 
 Andrei Kvapil <kvapss@gmail.com>  
