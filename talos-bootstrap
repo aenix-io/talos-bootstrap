@@ -6,9 +6,53 @@
 # This code should (try to) follow Google's Shell Style Guide
 # - https://google.github.io/styleguide/shell.xml
 #
-
 node=
 OP=
+
+# Prepend $HOME/.tbs/bin to $PATH so we pickup on any 
+# downloaded/preferred binary versions
+export PATH=$HOME/.tbs/bin:$PATH
+
+# Test for a binary, and prompt to install to /usr/local/bin, 
+# or download temp copy using J.Pillora's hosted copy of installer:
+# https://github.com/jpillora/installer
+function check_or_install {
+  PROG=$1
+  REPO=$2
+  # TODO: Versioned install/download
+  VERSION=${4:-"latest"}
+  METHOD=${3:-}
+  NEEDS_INSTALLED=
+  BIN_DIR=$HOME/.tbs/bin
+  # test if $PROG already exists: if yes NEEDS_INSTALLED remains unset,
+  # therefore we skip over the 
+  which $PROG > /dev/null || NEEDS_INSTALLED=true
+  # No install method specified, prompt
+  if [[ $NEEDS_INSTALLED && -z "$METHOD" ]]; then
+    install_option=$(dialog --keep-tite --title "Missing: $PROG..." \
+                      --menu "Required program missing: $PROG\nSelect an option" 0 0 0 \
+                      1 "Install $PROG to /usr/local/bin" \
+                      2 "Download temporary copy of $PROG" \
+                      3 "Do nothing and exit" 3>&1 1>&2 2>&3) || exit 0
+    case $install_option in
+      1) METHOD="install" ;;
+      2) METHOD="download" ;;
+      *) exit 0 ;;
+    esac
+  fi
+  if [[ $NEEDS_INSTALLED && $METHOD == "install" ]]; then
+    curl -s "https://i.jpillora.com/${REPO}\!?as=${PROG}&type=script" | bash
+  elif [[ $NEEDS_INSTALLED && $METHOD == "download" ]]; then
+    # store PWD
+    pushd $PWD > /dev/null
+    mkdir -p $HOME/.tbs/bin && cd $HOME/.tbs/bin
+    # url without ! will attempt to download to $PWD
+    curl -s "https://i.jpillora.com/${REPO}?as=${PROG}&type=script" | bash
+    # return to original directory
+    popd > /dev/null
+  fi
+}
+
 while [ $# -gt 0 ]; do
   key="$1"
   case $key in
@@ -55,6 +99,13 @@ case "$OP" in
     exit 1
     ;;
 esac
+
+# TODO: install and utilize YQ
+# check_or_install yq mikefarah/yq download
+check_or_install talosctl siderolabs/talos # download
+# yq --help > /dev/null && echo "Utilizing yq $(yq --version | cut -d' ' -f 4) [$(which yq)]" || exit 1
+talosctl --help > /dev/null && echo "Utilizing talosctl $(talosctl version --client --short | tail -1| cut -d' ' -f2) [$(which talosctl)]"  || exit 1
+echo "Current working directory: $PWD"
 
 # Load cluster configuration
 if [ -f cluster.conf ]; then
