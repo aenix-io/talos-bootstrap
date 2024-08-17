@@ -303,7 +303,7 @@ if [ "$interface_kind" = bond ]; then
   # Screen: Select slave interfaces for bonding
   interface_index=$(talosctl -e "${node}" -n "${node}" get link "${interface}" ${OPTS} -o jsonpath='{.spec.index}') || exit $?
   default_slave_interfaces=$(talosctl -e "${node}" -n "${node}" get link ${OPTS} -o jsonpath='{.metadata.id}{.spec}' | \
-   awk '{sub("}", "\n"); print}' ORS=""| awk -F '{' '/masterIndex/ {sub("{.*masterIndex", ""); print}' | awk '{sub(",.*", ""); sub("\":", ""); if ($2 == '"${interface_index}"') print $1}')
+    awk '{sub("}", "\n"); print}' ORS=""| awk -F '{' '/masterIndex/ {sub("{.*masterIndex", ""); print}' | awk '{sub(",.*", ""); sub("\":", ""); if ($2 == '"${interface_index}"') print $1}')
   slave_interfaces_list=$(echo "$interface_list" | awk '$1 !~ /^bond/' | while read link details; do
     echo "$link" "$details" "$(echo "$default_slave_interfaces" | awk "\$1 == \"$link\" {found=1; exit} END {print found ? \"on\" : \"off\"}")"
   done)
