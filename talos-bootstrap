@@ -56,6 +56,20 @@ case "$OP" in
     ;;
 esac
 
+# Version check
+command -V dialog || exit 1
+command -V talosctl || exit 1
+command -V awk || exit 1
+if [ "$node" = "" ]; then
+  command -V nmap || exit 1
+fi
+
+VERSION_REQUIRED=v1.9
+if [ $(echo "${VERSION_REQUIRED}\n$(talosctl version --client | awk '$1 == "Tag:" {print $2}')" | sort -V | tail -n 1) = "${VERSION_REQUIRED}" ]; then
+  echo "talos-bootstrap requires talosctl version ${VERSION_REQUIRED} or higher. Please check 'talosctl version --client'"
+  exit 1
+fi
+
 # Load cluster configuration
 if [ -f cluster.conf ]; then
   for key in BOOTSTRAP_ETCD CLUSTER_NAME KUBERNETES_API_ENDPOINT VIP_ADDRESS; do
