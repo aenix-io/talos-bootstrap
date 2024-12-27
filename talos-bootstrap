@@ -60,11 +60,9 @@ esac
 command -V dialog || exit 1
 command -V talosctl || exit 1
 command -V awk || exit 1
-if [ "$node" = "" ]; then
-  command -V nmap || exit 1
-fi
+command -V nmap || exit 1
 
-VERSION_REQUIRED=v1.9
+VERSION_REQUIRED=v1.8
 if [ $(echo "${VERSION_REQUIRED}\n$(talosctl version --client | awk '$1 == "Tag:" {print $2}')" | sort -V | tail -n 1) = "${VERSION_REQUIRED}" ]; then
   echo "talos-bootstrap requires talosctl version ${VERSION_REQUIRED} or higher. Please check 'talosctl version --client'" >&2
   exit 1
