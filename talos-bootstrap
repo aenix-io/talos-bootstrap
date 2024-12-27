@@ -514,8 +514,19 @@ else
 fi
 
 if [ "${should_bootstrap}" = 1 ]; then
-  talosctl --talosconfig=talosconfig -e "${node}" -n "${node}" bootstrap
+  count=0
+  max_retries=20
+  while ! nmap -Pn ${vip_address} -p 50000 | grep -q 'open' && [ ${count} -lt ${max_retries} ]; do
+    count=$((count+1))
+    sleep 5
+    talosctl --talosconfig=talosconfig -e "${node}" -n "${node}" bootstrap
+  done
+  if [ ${count} -ge ${max_retries} ]; then
+    dialog --keep-tite --title "talos-bootstrap" --msgbox "Port 50000 closed, ETCD is not installed!" 5 26
+    exit 1
+  fi
 fi
+
 
 # Saving cluster configuration
 cat > cluster.conf <<EOT
