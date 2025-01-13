@@ -346,7 +346,7 @@ machine_config=$(cat <<EOT
 machine:
   type: ${role}
   install:
-    disk: ${disk}
+    disk: /dev/${disk}
   network:
     hostname: ${hostname}
     nameservers: [${dns_servers}]
