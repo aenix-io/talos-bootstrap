@@ -416,15 +416,22 @@ talosctl gen config "${cluster_name}" "${k8s_endpoint}" --with-secrets=secrets.y
 # Screen: Select upgrade option
 if [ "$OP" = upgrade ]; then
   upgrade_option=$(dialog --keep-tite --title talos-bootstrap --menu "Select upgrade option" 0 0 0 \
-    1 "apply config and perform upgrade" \
-    2 "apply config and perform upgrade (with preserve option)" \
-    3 "apply config on live and skip upgrade" 3>&1 1>&2 2>&3) || exit 0
+    1 "apply config on live and skip upgrade" \
+    2 "apply config and perform upgrade (mode: default)" \
+    3 "apply config and perform upgrade (mode: powercycle)" \
+    4 "apply config and perform upgrade with force (mode: default)" \
+    5 "apply config and perform upgrade with force (mode: powercycle)" \
+    6 "apply config and schedule upgrade to perform it after a reboot" 3>&1 1>&2 2>&3) || exit 0
 
   should_upgrade=1
+  upgrade_opt=""
   case ${upgrade_option} in
-     1) preserve_opt="--preserve" ;;
-     2) preserve_opt="" ;;
-     3) should_upgrade="0" ;;
+     1) should_upgrade=0 ;;
+     2) upgrade_opt="--reboot-mode default" ;;
+     3) upgrade_opt="--reboot-mode powercycle" ;;
+     4) upgrade_opt="--force --reboot-mode default" ;;
+     5) upgrade_opt="--force --reboot-mode powercycle" ;;
+     6) upgrade_opt="--stage" ;;
   esac
 fi
 
@@ -443,7 +450,7 @@ talosctl apply -e "${bootstrap_ip}" -n "${bootstrap_ip}" -f "${role}.yaml" ${OPT
   if [ "$OP" = upgrade ] && [ "${should_upgrade}" = 1 ]; then
     image=$(talosctl -e "${node}" -n "${node}" get machineconfig -o jsonpath="{.spec.machine.install.image}" ${OPTS})
     printf "%s\nXXX\n%s\n%s\nXXX\n" "10" "Scheduling upgrade..." "(image: $image)"
-    talosctl -e "${node}" -n "${node}" upgrade ${preserve_opt} -i "${image}" --wait=false ${OPTS} || exit $?
+    talosctl -e "${node}" -n "${node}" upgrade ${upgrade_opt} -i "${image}" --wait=false ${OPTS} || exit $?
   fi
 
   if [ "$OP" = upgrade ]; then
@@ -460,7 +467,7 @@ talosctl apply -e "${bootstrap_ip}" -n "${bootstrap_ip}" -f "${role}.yaml" ${OPT
     sleep 0.2
     if [ "${new_is_pingable}" = 0 ]; then
       if [ "${old_is_up}" = 1 ]; then
-        status=$(timeout 1 talosctl --talosconfig=talosconfig -e "${node}" -n "${node}" get machinestatus ${OPTS} -o jsonpath={.spec.stage}) 2>&1
+        status=$(timeout 3 talosctl --talosconfig=talosconfig -e "${node}" -n "${node}" get machinestatus ${OPTS} -o jsonpath={.spec.stage} 2>/dev/null)
         if [ $? = 124 ]; then
           old_is_up=0
         fi
@@ -482,7 +489,7 @@ talosctl apply -e "${bootstrap_ip}" -n "${bootstrap_ip}" -f "${role}.yaml" ${OPT
       fi
     fi
 
-    if timeout 1 talosctl --talosconfig=talosconfig -e "${node}" -n "${node}" get machinestatus >/dev/null 2>&1; then
+    if timeout 3 talosctl --talosconfig=talosconfig -e "${node}" -n "${node}" get machinestatus >/dev/null 2>&1; then
       new_is_up=1
     fi
 
